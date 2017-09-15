@@ -26,21 +26,13 @@ object TripAggregatorApplication {
         StreamExecutionEnvironment.getExecutionEnvironment()
 
     val inputData: DataStream<String> = streamExecutionEnvironment.fromElements(
-        "1:3.32:1461756862001:false",
-        "1:1.2:1461756862000:false",
-        "1:4.32:1461756862002:true",
-        "2:3.0:1461756862001:false",
-        "2:4.32:1461756862102:true",
-        "2:1.32:1461756862000:false",
-        "3:1.232:1461756862001:true"
+        "{\"id\": 1, \"amount\": 3.32, \"timestamp\": 1461756862001, \"is_terminator\": false}",
+        "{\"id\": 1, \"amount\": 1.2, \"timestamp\": 1461756862002, \"is_terminator\": false}",
+        "{\"id\": 1, \"amount\": 4.32, \"timestamp\": 1461756862003, \"is_terminator\": true}"
     )
 
     val terminatorTrigger: FirstElementWithPropertyTrigger<BankAccountDeposit, Window> =
         FirstElementWithPropertyTrigger.of { it.isTerminator }
-
-    val toBankAccountDeposit = MapFunction<String, BankAccountDeposit> {
-      BankAccountDeposit.of(it)
-    }
 
     val mergeBankAccountDeposits = ReduceFunction<BankAccountDeposit> {
       (firstId, firstAmount), (_, secondAmount) -> BankAccountDeposit(
@@ -70,7 +62,7 @@ object TripAggregatorApplication {
 
     val rows: DataStream<Row> =
         inputData
-            .map(toBankAccountDeposit)
+            .map(JSONUtil.toBankAccountDeposit)
             .assignTimestampsAndWatermarks(timestampExtractor)
             .keyBy(keySelector)
             .window(EventTimeSessionWindows.withGap(Time.milliseconds(500)))
@@ -79,8 +71,8 @@ object TripAggregatorApplication {
             .map(toRow)
             .returns(
                 RowTypeInfo(
-                    JDBCTypeUtil.sqlTypeToTypeInformatin(Types.INTEGER),
-                    JDBCTypeUtil.sqlTypeToTypeInformatin(Types.DOUBLE)
+                    JDBCTypeUtil.sqlTypeToTypeInformation(Types.INTEGER),
+                    JDBCTypeUtil.sqlTypeToTypeInformation(Types.DOUBLE)
                 )
             )
 

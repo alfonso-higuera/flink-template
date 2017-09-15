@@ -69,7 +69,7 @@ object JDBCTypeUtil {
     }
   }
 
-  fun sqlTypeToTypeInformatin(type: Int): TypeInformation<*> {
+  fun sqlTypeToTypeInformation(type: Int): TypeInformation<*> {
     return if (typeInformationMapping.containsKey(type)) {
       typeInformationMapping[type]!!
     } else {
