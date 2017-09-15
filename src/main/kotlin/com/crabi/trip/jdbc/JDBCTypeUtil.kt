@@ -39,21 +39,24 @@ object JDBCTypeUtil {
       Pair<PrimitiveArrayTypeInfo<ByteArray>, Int>(BYTE_PRIMITIVE_ARRAY_TYPE_INFO, Types.BINARY)
   )
 
+  private val typeInformationMapping: Map<Int, TypeInformation<*>> =
+      typeMapping.entries.associateBy({ it.value }) { it.key }
+
   private val sqlTypeNames: Map<Int, String> = mapOf(
-      Pair(Types.VARCHAR, "VARCHAR"),
-      Pair(Types.BOOLEAN, "BOOLEAN"),
-      Pair(Types.TINYINT, "TINYINT"),
-      Pair(Types.SMALLINT, "SMALLINT"),
-      Pair(Types.INTEGER, "INTEGER"),
-      Pair(Types.BIGINT, "BIGINT"),
-      Pair(Types.FLOAT, "FLOAT"),
-      Pair(Types.DOUBLE, "DOUBLE"),
-      Pair(Types.CHAR, "CHAR"),
-      Pair(Types.DATE, "DATE"),
-      Pair(Types.TIME, "TIME"),
-      Pair(Types.TIMESTAMP, "TIMESTAMP"),
-      Pair(Types.DECIMAL, "DECIMAL"),
-      Pair(Types.BINARY, "BINARY")
+      Pair<Int, String>(Types.VARCHAR, "VARCHAR"),
+      Pair<Int, String>(Types.BOOLEAN, "BOOLEAN"),
+      Pair<Int, String>(Types.TINYINT, "TINYINT"),
+      Pair<Int, String>(Types.SMALLINT, "SMALLINT"),
+      Pair<Int, String>(Types.INTEGER, "INTEGER"),
+      Pair<Int, String>(Types.BIGINT, "BIGINT"),
+      Pair<Int, String>(Types.FLOAT, "FLOAT"),
+      Pair<Int, String>(Types.DOUBLE, "DOUBLE"),
+      Pair<Int, String>(Types.CHAR, "CHAR"),
+      Pair<Int, String>(Types.DATE, "DATE"),
+      Pair<Int, String>(Types.TIME, "TIME"),
+      Pair<Int, String>(Types.TIMESTAMP, "TIMESTAMP"),
+      Pair<Int, String>(Types.DECIMAL, "DECIMAL"),
+      Pair<Int, String>(Types.BINARY, "BINARY")
   )
 
   fun typeInformationToSqlType(type: TypeInformation<*>): Int {
@@ -61,6 +64,14 @@ object JDBCTypeUtil {
       typeMapping[type]!!
     } else if (type is ObjectArrayTypeInfo<*, *> || type is PrimitiveArrayTypeInfo) {
       Types.ARRAY
+    } else {
+      throw IllegalArgumentException("Unsupported type: $type")
+    }
+  }
+
+  fun sqlTypeToTypeInformatin(type: Int): TypeInformation<*> {
+    return if (typeInformationMapping.containsKey(type)) {
+      typeInformationMapping[type]!!
     } else {
       throw IllegalArgumentException("Unsupported type: $type")
     }

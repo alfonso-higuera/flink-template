@@ -31,8 +31,7 @@ class JDBCAppendTableSink(private val outputFormat: JDBCOutputFormat)
 
   override fun configure(
       fieldNames: Array<String>, fieldTypes: Array<TypeInformation<*>>): TableSink<Row> {
-    val types: IntArray = outputFormat.typesArray ?:
-        throw NullPointerException("Types array missing from outputFormat")
+    val types: IntArray = outputFormat.typesArray
     val sinkSchema: String =
         types
             .map { JDBCTypeUtil.getTypeName(it) }
@@ -47,7 +46,7 @@ class JDBCAppendTableSink(private val outputFormat: JDBCOutputFormat)
     if (fieldTypes.size != types.size) {
       throw IllegalArgumentException(message)
     }
-    (0..types.size)
+    (0 until types.size)
         .filter { JDBCTypeUtil.typeInformationToSqlType(fieldTypes[it]) != types[it] }
         .forEach { throw IllegalArgumentException(message) }
 

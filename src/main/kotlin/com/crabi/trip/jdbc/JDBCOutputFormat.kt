@@ -36,11 +36,11 @@ class JDBCOutputFormat(
           "Column SQL types array doesn't match arity of passed Row! Check the passed array...")
     }
 
-    val upload: PreparedStatement =
-        uploadStatement ?: throw NullPointerException("The JDBC prepared statement is not initialized")
+    val upload: PreparedStatement = uploadStatement ?:
+        throw NullPointerException("The JDBC prepared statement is not initialized")
 
     try {
-      for (i in 0..row.arity) {
+      for (i in 0 until row.arity) {
         if (row.getField(i) == null) {
           upload.setNull(i + 1, typesArray[i])
         } else {
