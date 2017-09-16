@@ -19,8 +19,6 @@ class JDBCOutputFormat(
     val typesArray: IntArray
 ) : RichOutputFormat<Row>() {
 
-  private val serialVersionUID: Long = -1L
-
   private val logger: Logger = LoggerFactory.getLogger(JDBCOutputFormat::class.java)
   private var batchInterval: Int = 5000
 

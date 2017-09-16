@@ -9,10 +9,10 @@ import org.apache.flink.api.java.functions.KeySelector
 import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.streaming.api.datastream.DataStream
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
-import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor
-import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
+import org.apache.flink.streaming.api.windowing.assigners.GlobalWindows
 import org.apache.flink.streaming.api.windowing.time.Time
-import org.apache.flink.streaming.api.windowing.windows.Window
+import org.apache.flink.streaming.api.windowing.windows.GlobalWindow
 import org.apache.flink.table.api.TableEnvironment
 import org.apache.flink.table.api.java.StreamTableEnvironment
 import org.apache.flink.types.Row
@@ -25,14 +25,9 @@ object TripAggregatorApplication {
     val streamExecutionEnvironment: StreamExecutionEnvironment =
         StreamExecutionEnvironment.getExecutionEnvironment()
 
-    val inputData: DataStream<String> = streamExecutionEnvironment.fromElements(
-        "{\"id\": 1, \"amount\": 3.32, \"timestamp\": 1461756862001, \"is_terminator\": false}",
-        "{\"id\": 1, \"amount\": 1.2, \"timestamp\": 1461756862002, \"is_terminator\": false}",
-        "{\"id\": 1, \"amount\": 4.32, \"timestamp\": 1461756862003, \"is_terminator\": true}"
-    )
-
-    val terminatorTrigger: FirstElementWithPropertyTrigger<BankAccountDeposit, Window> =
-        FirstElementWithPropertyTrigger.of { it.isTerminator }
+    val inputData: DataStream<String> =
+        streamExecutionEnvironment
+            .socketTextStream("127.0.0.1", 9000, "\n")
 
     val mergeBankAccountDeposits = ReduceFunction<BankAccountDeposit> {
       (firstId, firstAmount), (_, secondAmount) -> BankAccountDeposit(
@@ -45,9 +40,10 @@ object TripAggregatorApplication {
 
     val keySelector = KeySelector<BankAccountDeposit, Int> { it.id }
 
-    val timestampExtractor = object : AscendingTimestampExtractor<BankAccountDeposit>() {
+    val timestampExtractor = object
+      : BoundedOutOfOrdernessTimestampExtractor<BankAccountDeposit>(Time.seconds(3)) {
 
-      override fun extractAscendingTimestamp(bankAccountDeposit: BankAccountDeposit): Long {
+      override fun extractTimestamp(bankAccountDeposit: BankAccountDeposit): Long {
         return bankAccountDeposit.timestamp
       }
     }
@@ -60,13 +56,21 @@ object TripAggregatorApplication {
         row
     }
 
+    val tableEnvironment: StreamTableEnvironment =
+        TableEnvironment.getTableEnvironment(streamExecutionEnvironment)
+
     val rows: DataStream<Row> =
         inputData
             .map(JSONUtil.toBankAccountDeposit)
             .assignTimestampsAndWatermarks(timestampExtractor)
             .keyBy(keySelector)
-            .window(EventTimeSessionWindows.withGap(Time.milliseconds(500)))
-            .trigger(terminatorTrigger)
+            .window(GlobalWindows.create())
+            .trigger(
+                ProcessingTimeTrigger<BankAccountDeposit, GlobalWindow>(
+                  minimumRetentionTimeInMilliseconds = Time.milliseconds(10).toMilliseconds(),
+                  maximumRetentionTimeInMilliseconds = Time.seconds(5).toMilliseconds()
+                )
+            )
             .reduce(mergeBankAccountDeposits)
             .map(toRow)
             .returns(
@@ -75,11 +79,6 @@ object TripAggregatorApplication {
                     JDBCTypeUtil.sqlTypeToTypeInformation(Types.DOUBLE)
                 )
             )
-
-    rows.print()
-
-    val tableEnvironment: StreamTableEnvironment =
-        TableEnvironment.getTableEnvironment(streamExecutionEnvironment)
 
     val jdbcSink = JDBCAppendTableSink(
         outputFormat = JDBCOutputFormat(
@@ -93,7 +92,11 @@ object TripAggregatorApplication {
         )
     )
 
-    tableEnvironment.fromDataStream(rows).writeToSink(jdbcSink)
+    tableEnvironment
+        .fromDataStream(rows)
+        .writeToSink(jdbcSink)
+
+    streamExecutionEnvironment.enableCheckpointing(Time.seconds(10).toMilliseconds())
 
     streamExecutionEnvironment.execute()
   }
