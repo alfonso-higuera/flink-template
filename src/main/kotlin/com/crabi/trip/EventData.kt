@@ -2,6 +2,14 @@ package com.crabi.trip
 
 abstract class EventData
 
+abstract class OnBoardDiagnosticsSpeedEventData
+
+data class TripSpeedMetrics(val distanceInKilometers: Double, val timeDurationInSeconds: Double)
+  : OnBoardDiagnosticsSpeedEventData()
+
+data class OnBoardDiagnosticsSpeedEvent(val data: OnBoardDiagnosticsSpeedEventData)
+  : EventData()
+
 enum class AccelerometerDataType { Triggered, Histogram, Unknown }
 
 enum class TriggeredAxis {

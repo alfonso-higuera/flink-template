@@ -14,14 +14,15 @@ data class GpsPointAggregate(val timestamp: Instant, val gpsPoint: GpsPoint) {
 }
 
 data class TripAggregation(
+    var id: Long,
     var timestamps: SortedSet<Instant>,
     var gpsPoints: SortedSet<GpsPointAggregate>,
     var speeds: SortedSet<VehicleSpeedAggregate>,
-    var totalTimeDurationInSeconds: Long,
-    var timeDurationMovingInSeconds: Long,
-    var timeDurationStoppedInSeconds: Long,
+    var totalTimeDurationInSeconds: Double,
+    var timeDurationMovingInSeconds: Double,
+    var timeDurationStoppedInSeconds: Double,
     var vehicleId: String,
-    var distanceInMeter: Double
+    var distanceInKilometers: Double
 )
 
 data class VehicleSpeedAggregate(val timestamp: Instant, val vehicleSpeed: VehicleSpeed) {

@@ -6,8 +6,10 @@ import org.apache.flink.streaming.api.windowing.triggers.Trigger
 import org.apache.flink.streaming.api.windowing.triggers.TriggerResult
 import org.apache.flink.streaming.api.windowing.windows.GlobalWindow
 
-class ProcessingTimeTrigger<T : Any, W : GlobalWindow>
-  (val minimumRetentionTimeInMilliseconds: Long, val maximumRetentionTimeInMilliseconds: Long) : Trigger<T, W>() {
+class ProcessingTimeTrigger<T : Any, W : GlobalWindow>(
+    val minimumRetentionTimeInMilliseconds: Long,
+    val maximumRetentionTimeInMilliseconds: Long
+) : Trigger<T, W>() {
 
   private val cleanupTimeStateDescription =
       ValueStateDescriptor<Long>("haveSeenElement", BasicTypeInfo.LONG_TYPE_INFO)

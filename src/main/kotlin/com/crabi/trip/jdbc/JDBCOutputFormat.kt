@@ -9,6 +9,13 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.SQLException
+import java.sql.Timestamp
+
+object MoreSqlTypes {
+
+  val DOUBLE_ARRAY = 41
+  val TIMESTAMP_ARRAY = 31
+}
 
 class JDBCOutputFormat(
     val userName: String? = null,
@@ -80,6 +87,28 @@ class JDBCOutputFormat(
             java.sql.Types.VARBINARY,
             java.sql.Types.LONGVARBINARY ->
               upload.setBytes(i + 1, row.getField(i) as ByteArray)
+            java.sql.Types.ARRAY -> {
+              val array = row.getField(i) as Array<*>
+              logger.warn("$i $array")
+              if (array.isNotEmpty()) {
+                val typeName: String =
+                    when (array[0]) {
+                      is Int -> "integer"
+                      is Timestamp -> "timestamp"
+                      is Double -> "float8"
+                      else -> { "" }
+                    }
+                upload.setArray(
+                    i + 1,
+                    databaseConnection!!.createArrayOf(typeName, array)
+                )
+              } else {
+                upload.setArray(
+                    i + 1,
+                    databaseConnection!!.createArrayOf("", array)
+                )
+              }
+            }
             else -> {
               upload.setObject(i + 1, row.getField(i))
               logger.warn(

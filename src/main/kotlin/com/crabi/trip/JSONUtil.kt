@@ -13,15 +13,6 @@ object JSONUtil {
   private val logger: Logger = LoggerFactory.getLogger(JSONUtil::class.java)
   private val gson = Gson()
 
-  val toBankAccountDeposit = MapFunction<String, BankAccountDeposit?> {
-    try {
-      gson.fromJson<BankAccountDeposit?>(it, BankAccountDeposit::class.java)
-    } catch (ex: Exception) {
-      logger.warn("Received malformed JSON: $it: $ex")
-      null
-    }
-  }
-
   private fun toParameterIdsData(data: Map<String, Any?>): Set<ParameterIdData> {
     val parameterIdsOrNull: List<ParameterIdData?> = data.map { (name, value) ->
       when (name) {
@@ -124,6 +115,24 @@ object JSONUtil {
         .toSet()
   }
 
+  private fun toEventData(data: Map<String, Any?>): EventData? {
+    val eventTypeStr: String = data["type"] as String
+    if (eventTypeStr == "ObdSpeedEvent") {
+      val onBoardDiagnosticsSpeedEventDataJsonMap: Map<String, Any?> =
+          data["obdSpeedEventData"] as Map<String, Any?>
+      if (onBoardDiagnosticsSpeedEventDataJsonMap["type"] as String == "SpeedMetricsPerTrip") {
+        val tripSpeedMetrics = TripSpeedMetrics(
+            distanceInKilometers =
+              onBoardDiagnosticsSpeedEventDataJsonMap["tripDistance"] as Double,
+            timeDurationInSeconds =
+              onBoardDiagnosticsSpeedEventDataJsonMap["tripTimeSeconds"] as Double
+        )
+        return OnBoardDiagnosticsSpeedEvent(data = tripSpeedMetrics)
+      }
+    }
+    return null
+  }
+
   val toTrip = MapFunction<String, Trip?> {
     try {
       val type: Type = object : TypeToken<Map<String, Any?>>(){}.type
@@ -131,9 +140,9 @@ object JSONUtil {
       val body: Map<String, Any?> = jsonMap["body"] as Map<String, Any?>
       val tripNumber: Long = (body["tripNumber"] as Double).toLong()
       val timestamp: String = body["timestamp"] as String
-      val eventType: String = body["type"] as String
-      val trip: Trip =
-          when (eventType) {
+      val messageType: String = body["type"] as String
+      val trip: Trip? =
+          when (messageType) {
             "TripStartRelativeTime" ->
               TripStart(
                   id = tripNumber,
@@ -156,8 +165,21 @@ object JSONUtil {
                   odometerValue = (body["odometer"] as Double).toLong(),
                   fuelConsumed = body["fuelConsumed"] as Double
               )
+            "TripEventRelativeTime" -> {
+              val eventData: EventData? =
+                  toEventData(data = body["eventData"] as Map<String, Any?>)
+              if (eventData != null) {
+                TripEvent(
+                    id = tripNumber,
+                    timestamp = OffsetDateTime.parse(timestamp).toInstant(),
+                    eventData = eventData
+                )
+              } else {
+                null
+              }
+            }
             else -> {
-              throw IllegalArgumentException("Unknown event type: $eventType")
+              throw IllegalArgumentException("Unknown event type: $messageType")
             }
           }
       trip
