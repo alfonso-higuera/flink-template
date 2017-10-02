@@ -373,17 +373,6 @@ data class NormalizedAccelerometer(val offsets: List<Point>, val base: Point) : 
 
 data class FuelLevelInputSmoothed(val tankLevelPercentage: Int) : ParameterIdData()
 
-data class GpsPoint(val latitude: Double, val longitude: Double)
-
-data class GpsData(
-    val headingAngle: Int,
-    val horizontalDilutionOfPrecision: Int,
-    val gpsPoint: GpsPoint,
-    val numberOfSatellites: Int,
-    val gpsRegion: GpsRegion,
-    val fixQuality: GpsFixQuality
-) : ParameterIdData()
-
 data class GpsDataAggregate(val timestamp: Instant, val gpsData: GpsData) {
 
   companion object {

@@ -4,10 +4,12 @@ import com.crabi.trip.jdbc.JDBCAppendTableSink
 import com.crabi.trip.jdbc.JDBCOutputFormat
 import org.apache.flink.api.common.functions.AggregateFunction
 import org.apache.flink.api.common.functions.FilterFunction
+import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.api.common.functions.MapFunction
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo
 import org.apache.flink.api.common.typeinfo.SqlTimeTypeInfo
 import org.apache.flink.api.java.functions.KeySelector
+import org.apache.flink.api.java.tuple.Tuple3
 import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.streaming.api.datastream.DataStream
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
@@ -20,11 +22,11 @@ import org.apache.flink.streaming.util.serialization.SimpleStringSchema
 import org.apache.flink.table.api.TableEnvironment
 import org.apache.flink.table.api.java.StreamTableEnvironment
 import org.apache.flink.types.Row
+import org.apache.flink.util.Collector
 import java.sql.Timestamp
 import java.sql.Types
 import java.time.Instant
 import java.util.Properties
-import java.util.TreeSet
 
 object TripAggregatorApplication {
 
@@ -33,124 +35,111 @@ object TripAggregatorApplication {
     val streamExecutionEnvironment: StreamExecutionEnvironment =
         StreamExecutionEnvironment.getExecutionEnvironment()
 
-    val aggregateTrips = object : AggregateFunction<Trip, TripAggregation, TripAggregation> {
+    val aggregateTrips = object : AggregateFunction<TripEvent, Trip, Trip> {
 
-      override fun merge(first: TripAggregation, second: TripAggregation): TripAggregation {
-        first.gpsPoints.addAll(second.gpsPoints)
-        first.timestamps.addAll(second.timestamps)
-        first.timestamps.addAll(second.timestamps)
-        first.speeds.addAll(second.speeds)
-        first.totalTimeDurationInSeconds += second.totalTimeDurationInSeconds
-        first.timeDurationMovingInSeconds += second.timeDurationMovingInSeconds
-        first.timeDurationStoppedInSeconds += second.timeDurationStoppedInSeconds
-        if (second.vehicleId.isNotEmpty()) {
-          first.vehicleId = second.vehicleId
+      override fun getResult(trip: Trip): Trip {
+        return trip
+      }
+
+      override fun merge(firstTrip: Trip, secondTrip: Trip): Trip {
+        firstTrip.gpsPoints.addAll(secondTrip.gpsPoints)
+        if (secondTrip.distanceTravelledInKilometers != null) {
+          firstTrip.distanceTravelledInKilometers = secondTrip.distanceTravelledInKilometers
         }
-        return first
-      }
-
-      override fun add(trip: Trip, tripAggregation: TripAggregation) {
-        tripAggregation.id = trip.id
-        tripAggregation.timestamps.add(trip.timestamp)
-        when (trip) {
-          is TripData -> {
-            val gpsPoints: List<GpsPointAggregate> =
-                trip
-                    .parameterIdsData
-                    .filter { it is GpsData }
-                    .map { it as GpsData }
-                    .map { GpsPointAggregate(timestamp = trip.timestamp, gpsPoint = it.gpsPoint) }
-            tripAggregation
-                .gpsPoints
-                .addAll(gpsPoints)
-            val vehicleSpeeds: List<VehicleSpeedAggregate> =
-                trip
-                    .parameterIdsData
-                    .filter { it is VehicleSpeed }
-                    .map {
-                      VehicleSpeedAggregate(
-                          timestamp = trip.timestamp,
-                          vehicleSpeed = it as VehicleSpeed
-                      )
-                    }
-            tripAggregation.speeds.addAll(vehicleSpeeds)
-          }
-          is TripStart ->
-            tripAggregation.vehicleId = trip.vehicleId
-          is TripEvent -> {
-            if (trip.eventData is OnBoardDiagnosticsSpeedEvent &&
-                trip.eventData.data is TripSpeedMetrics) {
-              tripAggregation.distanceInKilometers += trip.eventData.data.distanceInKilometers
-              tripAggregation.totalTimeDurationInSeconds += trip.eventData.data.timeDurationInSeconds
-            }
-          }
+        if (secondTrip.initialTimestamp != null) {
+          firstTrip.initialTimestamp = secondTrip.initialTimestamp
         }
+        if (secondTrip.finalTimestamp != null) {
+          firstTrip.finalTimestamp = secondTrip.finalTimestamp
+        }
+        if (secondTrip.timeIdleInSeconds != null) {
+          firstTrip.timeIdleInSeconds = secondTrip.timeIdleInSeconds
+        }
+        if (secondTrip.timeMovingInSeconds != null) {
+          firstTrip.timeMovingInSeconds = secondTrip.timeMovingInSeconds
+        }
+        if (secondTrip.vehicleId != null) {
+          firstTrip.vehicleId = secondTrip.vehicleId
+        }
+        if (secondTrip.internationalMobileEquipmentId != null) {
+          firstTrip.internationalMobileEquipmentId = secondTrip.internationalMobileEquipmentId
+        }
+        return firstTrip
       }
 
-      private fun timeDeltas(speeds: Collection<VehicleSpeedAggregate>): Collection<Long> {
-        return speeds
-            .drop(1)
-            .zip(speeds)
-            .map { (first: VehicleSpeedAggregate, second: VehicleSpeedAggregate) ->
-              first.timestamp.epochSecond - second.timestamp.epochSecond
-            }
-      }
-
-      override fun getResult(tripAggregation: TripAggregation): TripAggregation {
-        val consecutiveLowSpeedSequences = ArrayList<Collection<VehicleSpeedAggregate>>()
-        var speeds: Collection<VehicleSpeedAggregate> = tripAggregation.speeds
-        while (speeds.isNotEmpty()) {
-          val consecutiveLowSpeedSequence: List<VehicleSpeedAggregate> =
-             speeds.takeWhile { it.vehicleSpeed.speedInKilometerPerHour < 2 }
-          speeds = if (consecutiveLowSpeedSequence.isNotEmpty()) {
-            consecutiveLowSpeedSequences.add(consecutiveLowSpeedSequence)
-            speeds.drop(consecutiveLowSpeedSequence.size)
-          } else {
-            speeds.drop(1)
+      override fun add(tripEvent: TripEvent, trip: Trip): Unit {
+        trip.id = tripEvent.id
+        trip.gpsPoints.add(
+            GpsPoint(
+                timestamp = tripEvent.timestamp,
+                latitude = tripEvent.latitude,
+                longitude = tripEvent.longitude
+            )
+        )
+        when (tripEvent) {
+          is TripStart -> {
+            trip.initialTimestamp = tripEvent.timestamp
+            trip.vehicleId = tripEvent.vehicleId
+            trip.internationalMobileEquipmentId = tripEvent.internationalMobileEquipmentId
+          }
+          is TripEnd -> {
+            trip.finalTimestamp = tripEvent.timestamp
+            trip.distanceTravelledInKilometers = tripEvent.distanceTravelledInKilometers
+            trip.timeIdleInSeconds = tripEvent.timeIdleInSeconds
+            trip.timeMovingInSeconds = tripEvent.timeMovingInSeconds
           }
         }
-        tripAggregation.timeDurationStoppedInSeconds =
-            consecutiveLowSpeedSequences.flatMap { timeDeltas(it) }.sum().toDouble()
-        tripAggregation.timeDurationMovingInSeconds =
-            tripAggregation.totalTimeDurationInSeconds -
-                tripAggregation.timeDurationStoppedInSeconds
-        return tripAggregation
       }
 
-      override fun createAccumulator(): TripAggregation {
-        return TripAggregation(
-            id = -1L,
-            timestamps = TreeSet<Instant>(),
-            gpsPoints = TreeSet<GpsPointAggregate>(GpsPointAggregate.timestampComparator),
-            speeds = TreeSet<VehicleSpeedAggregate>(VehicleSpeedAggregate.timestampComparator),
-            totalTimeDurationInSeconds = 0.0,
-            timeDurationMovingInSeconds = 0.0,
-            timeDurationStoppedInSeconds = 0.0,
-            vehicleId = "",
-            distanceInKilometers = 0.0
+      override fun createAccumulator(): Trip {
+        return Trip(
+            id = null,
+            initialTimestamp = null,
+            finalTimestamp = null,
+            distanceTravelledInKilometers = null,
+            timeMovingInSeconds = null,
+            timeIdleInSeconds = null,
+            vehicleId = null,
+            internationalMobileEquipmentId = null,
+            gpsPoints = ArrayList<GpsPoint>()
         )
       }
     }
 
-    val keySelector = KeySelector<Trip, Long> { it.id }
+    val keySelector = KeySelector<TripEvent, Long> { it.id }
 
     val timestampExtractor = object
-      : BoundedOutOfOrdernessTimestampExtractor<Trip>(Time.seconds(3)) {
+      : BoundedOutOfOrdernessTimestampExtractor<TripEvent>(Time.seconds(3)) {
 
-      override fun extractTimestamp(trip: Trip): Long {
+      override fun extractTimestamp(trip: TripEvent): Long {
         return trip.timestamp.epochSecond
       }
     }
 
-    val toRow = MapFunction<TripAggregation, Row> { tripAggregation: TripAggregation ->
-      val row = Row(7)
-      row.setField(0, tripAggregation.id)
-      row.setField(1, Timestamp.from(tripAggregation.timestamps.first()))
-      row.setField(2, Timestamp.from(tripAggregation.timestamps.last()))
-      row.setField(3, tripAggregation.distanceInKilometers)
-      row.setField(4, tripAggregation.timeDurationStoppedInSeconds)
-      row.setField(5, tripAggregation.timeDurationMovingInSeconds)
-      row.setField(6, tripAggregation.vehicleId)
+    val toTripRow = MapFunction<Trip, Row> { trip: Trip ->
+      val row = Row(8)
+      row.setField(0, trip.id ?: -1L)
+      row.setField(
+          1,
+          if (trip.initialTimestamp != null) {
+            Timestamp.from(trip.initialTimestamp)
+          } else {
+            Timestamp.from(Instant.ofEpochMilli(0L))
+          }
+      )
+      row.setField(
+          2,
+          if (trip.finalTimestamp != null) {
+            Timestamp.from(trip.finalTimestamp)
+          } else {
+            Timestamp.from(Instant.ofEpochMilli(0L))
+          }
+      )
+      row.setField(3, trip.distanceTravelledInKilometers ?: 0.0)
+      row.setField(4, trip.timeIdleInSeconds ?: 0.0)
+      row.setField(5, trip.timeMovingInSeconds ?: 0.0)
+      row.setField(6, trip.internationalMobileEquipmentId ?: "")
+      row.setField(7, trip.vehicleId ?: "")
       row
     }
 
@@ -158,81 +147,91 @@ object TripAggregatorApplication {
         TableEnvironment.getTableEnvironment(streamExecutionEnvironment)
 
     val kafkaProperties = Properties()
-    kafkaProperties.setProperty("bootstrap.servers", "10.138.0.2:9092,10.138.0.3:9092,10.138.0.4:9092")
+    kafkaProperties.setProperty("bootstrap.servers", "127.0.0.1:9092")
     kafkaProperties.setProperty("group.id", "test")
     val kafkaConsumer =
         FlinkKafkaConsumer010<String>("test", SimpleStringSchema(), kafkaProperties)
-    kafkaConsumer.setStartFromEarliest()
+    kafkaConsumer.setStartFromLatest()
 
-    val filterNulls = FilterFunction<Trip?> { it != null }
+    val filterNulls = FilterFunction<TripEvent?> { it != null }
 
-    val toNonNullable = MapFunction<Trip?, Trip> { it as Trip }
+    val toNonNullable = MapFunction<TripEvent?, TripEvent> { it!! }
 
-    val tripAggregations: DataStream<TripAggregation> =
+    val trips: DataStream<Trip> =
         streamExecutionEnvironment
             .addSource(kafkaConsumer)
-            .map(JSONUtil.toTrip)
+            .map(JsonUtil.toTripEvent)
             .filter(filterNulls)
             .map(toNonNullable)
             .assignTimestampsAndWatermarks(timestampExtractor)
             .keyBy(keySelector)
             .window(GlobalWindows.create())
             .trigger(
-                ProcessingTimeTrigger<Trip, GlobalWindow>(
+                ProcessingTimeTrigger<TripEvent, GlobalWindow>(
                     minimumRetentionTimeInMilliseconds = Time.milliseconds(200).toMilliseconds(),
                     maximumRetentionTimeInMilliseconds = Time.seconds(10).toMilliseconds()
                 )
             )
             .aggregate(aggregateTrips)
 
-    val rows: DataStream<Row> =
-        tripAggregations
-          .map(toRow)
-          .returns(
-              RowTypeInfo(
-                  BasicTypeInfo.LONG_TYPE_INFO,
-                  SqlTimeTypeInfo.TIMESTAMP,
-                  SqlTimeTypeInfo.TIMESTAMP,
-                  BasicTypeInfo.DOUBLE_TYPE_INFO,
-                  BasicTypeInfo.DOUBLE_TYPE_INFO,
-                  BasicTypeInfo.DOUBLE_TYPE_INFO,
-                  BasicTypeInfo.STRING_TYPE_INFO
-              )
-          )
+    trips.print()
 
-    val jdbcSink = JDBCAppendTableSink(
+    val tripRows: DataStream<Row> =
+        trips
+            .map(toTripRow)
+            .returns(
+                RowTypeInfo(
+                    BasicTypeInfo.LONG_TYPE_INFO,
+                    SqlTimeTypeInfo.TIMESTAMP,
+                    SqlTimeTypeInfo.TIMESTAMP,
+                    BasicTypeInfo.DOUBLE_TYPE_INFO,
+                    BasicTypeInfo.DOUBLE_TYPE_INFO,
+                    BasicTypeInfo.DOUBLE_TYPE_INFO,
+                    BasicTypeInfo.STRING_TYPE_INFO,
+                    BasicTypeInfo.STRING_TYPE_INFO
+                )
+            )
+
+    val tripsJdbcSink = JDBCAppendTableSink(
         outputFormat = JDBCOutputFormat(
             driverName = "org.postgresql.Driver",
-            databaseUrl = "jdbc:postgresql://10.138.0.100:26257/trips?ssl=true&sslcert=/home/ahiguera/application/certs/client.trip_aggregator.crt&sslkey=/home/ahiguera/application/key/client.trip_aggregator.key.pk8&sslrootcert=/home/ahiguera/application/certs/ca.crt&sslfactory=org.postgresql.ssl.jdbc4.LibPQFactory&user=trip_aggregator&sslmode=require",
+            databaseUrl = "jdbc:postgresql://127.0.0.1:26257/trips?user=root&ssl=false&sslmode=disable",
             query =
                 """| INSERT INTO trip (
-                   |    bitbrew_trip_id,
+                   |    id,
                    |    initial_timestamp,
                    |    final_timestamp,
                    |    distance_in_kilometers,
-                   |    time_duration_stopped_in_seconds,
-                   |    time_duration_moving_in_seconds,
+                   |    time_idle_in_seconds,
+                   |    time_moving_in_seconds,
+                   |    international_mobile_equipment_id,
                    |    vehicle_id
                    | )
-                   | VALUES (?, ?, ?, ?, ?, ?, ?)
-                   | ON CONFLICT (bitbrew_trip_id, vehicle_id) DO UPDATE SET
+                   | VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   | ON CONFLICT (id, international_mobile_equipment_id) DO UPDATE SET
                    |     initial_timestamp = LEAST(trip.initial_timestamp, excluded.initial_timestamp),
                    |     final_timestamp = GREATEST(trip.final_timestamp, excluded.final_timestamp),
                    |     distance_in_kilometers = trip.distance_in_kilometers + excluded.distance_in_kilometers,
-                   |     time_duration_stopped_in_seconds = trip.time_duration_stopped_in_seconds + excluded.time_duration_stopped_in_seconds,
-                   |     time_duration_moving_in_seconds = trip.time_duration_moving_in_seconds + excluded.time_duration_moving_in_seconds,
+                   |     time_idle_in_seconds = trip.time_idle_in_seconds + excluded.time_idle_in_seconds,
+                   |     time_moving_in_seconds = trip.time_moving_in_seconds + excluded.time_moving_in_seconds,
                    |     vehicle_id = CASE
                    |                      WHEN trip.vehicle_id = '' THEN
                    |                          excluded.vehicle_id
                    |                      ELSE
                    |                          trip.vehicle_id
                    |                  END,
-                   |     bitbrew_trip_id = CASE
-                   |                           WHEN trip.bitbrew_trip_id = -1 THEN
-                   |                               excluded.bitbrew_trip_id
-                   |                           ELSE
-                   |                               trip.bitbrew_trip_id
-                   |                       END
+                   |     international_mobile_equipment_id = CASE
+                   |                                             WHEN trip.international_mobile_equipment_id = '' THEN
+                   |                                                 excluded.international_mobile_equipment_id
+                   |                                             ELSE
+                   |                                                 trip.international_mobile_equipment_id
+                   |                                         END,
+                   |     id = CASE
+                   |              WHEN trip.id = -1 THEN
+                   |                  excluded.id
+                   |              ELSE
+                   |                  trip.id
+                   |          END
                 """.trimMargin(),
             typesArray = intArrayOf(
                 Types.BIGINT,
@@ -241,14 +240,74 @@ object TripAggregatorApplication {
                 Types.DOUBLE,
                 Types.DOUBLE,
                 Types.DOUBLE,
+                Types.VARCHAR,
                 Types.VARCHAR
             )
         )
     )
 
     tableEnvironment
-        .fromDataStream(rows)
-        .writeToSink(jdbcSink)
+        .fromDataStream(tripRows)
+        .writeToSink(tripsJdbcSink)
+
+    val toGpsPointRow = MapFunction<Tuple3<Long, String, GpsPoint>, Row> {
+      gpsData: Tuple3<Long, String, GpsPoint> ->
+        val row = Row(5)
+        row.setField(0, Timestamp.from(gpsData.f2.timestamp))
+        row.setField(1, gpsData.f2.latitude)
+        row.setField(2, gpsData.f2.longitude)
+        row.setField(3, gpsData.f0)
+        row.setField(4, gpsData.f1)
+        row
+    }
+
+    val gpsRows: DataStream<Row> =
+        trips
+            .flatMap(FlatMapFunction<Trip, Tuple3<Long, String, GpsPoint>> {
+              trip: Trip, collector: Collector<Tuple3<Long, String, GpsPoint>> ->
+                trip.gpsPoints.forEach {
+                  collector.collect(Tuple3.of(trip.id, trip.internationalMobileEquipmentId, it))
+                }
+            })
+            .map(toGpsPointRow)
+            .returns(
+                RowTypeInfo(
+                    SqlTimeTypeInfo.TIMESTAMP,
+                    BasicTypeInfo.DOUBLE_TYPE_INFO,
+                    BasicTypeInfo.DOUBLE_TYPE_INFO,
+                    BasicTypeInfo.LONG_TYPE_INFO,
+                    BasicTypeInfo.STRING_TYPE_INFO
+                )
+            )
+
+    val gpsJdbcSink = JDBCAppendTableSink(
+        outputFormat = JDBCOutputFormat(
+            driverName = "org.postgresql.Driver",
+            databaseUrl = "jdbc:postgresql://127.0.0.1:26257/trips?user=root&ssl=false&sslmode=disable",
+            query =
+                """| INSERT INTO gps_data (
+                   |    gps_data_timestamp,
+                   |    latitude,
+                   |    longitude,
+                   |    trip_id,
+                   |    trip_international_mobile_equipment_id
+                   | )
+                   | VALUES (?, ?, ?, ?, ?)
+                   | ON CONFLICT (gps_data_timestamp, trip_id, trip_international_mobile_equipment_id) DO NOTHING
+                """.trimMargin(),
+            typesArray = intArrayOf(
+                Types.TIMESTAMP,
+                Types.DOUBLE,
+                Types.DOUBLE,
+                Types.BIGINT,
+                Types.VARCHAR
+            )
+        )
+    )
+
+    tableEnvironment
+        .fromDataStream(gpsRows)
+        .writeToSink(gpsJdbcSink)
 
     streamExecutionEnvironment.enableCheckpointing(Time.seconds(30).toMilliseconds())
 
