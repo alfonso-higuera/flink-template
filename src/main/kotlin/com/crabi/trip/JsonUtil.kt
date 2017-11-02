@@ -13,47 +13,56 @@ object JsonUtil {
   private val gson = Gson()
 
   val toTripEvent = MapFunction<String, TripEvent?> {
-    val jsonMap: Map<String, Any?> = gson.fromJson<Map<String, Any?>>(it, Map::class.java)
-    val body = jsonMap["body"] as Map<String, Any?>
-    val message = body["message"] as Map<String, Any?>
-    val messageType = message["type"] as String
-    val id = (message["tripNumber"] as Double).toLong()
-    val header = body["header"] as Map<String, Any?>
-    val timestamp = Instant.from(ZonedDateTime.parse(header["timestamp"] as String))
-    val longitude = header["latitude"] as Double
-    val latitude = header["longitude"] as Double
-    val gpsQuality: GpsQuality = GpsQuality.valueOf(header["fixQuality"] as String)
-    when (messageType) {
-      "TripStartEvent" -> TripStart(
-          id,
-          timestamp,
-          latitude,
-          longitude,
-          gpsQuality,
-          vehicleId = message["vin"] as String,
-          internationalMobileEquipmentId = message["imei"] as String
-      )
-      "TripEndEvent" -> TripEnd(
-          id,
-          timestamp,
-          latitude,
-          longitude,
-          gpsQuality,
-          distanceTravelledInKilometers = message["distanceTravelled"] as Double,
-          timeMovingInSeconds = message["tripTime"] as Double,
-          timeIdleInSeconds = message["tripIdleTime"] as Double
-      )
-      "GPSMessage" -> GpsData(
-          id,
-          timestamp,
-          latitude,
-          longitude,
-          gpsQuality
-      )
-      else -> {
-        logger.error("Unknown trip event type: $messageType")
-        null
+    try {
+      val jsonMap: Map<String, Any?> = gson.fromJson<Map<String, Any?>>(it, Map::class.java)
+      val header = jsonMap["header"] as Map<String, Any?>
+      val deviceId = header["deviceId"] as String
+      val body = jsonMap["body"] as Map<String, Any?>
+      val message = body["message"] as Map<String, Any?>
+      val messageType = message["type"] as String
+      val bodyHeader = body["header"] as Map<String, Any?>
+      val id = (bodyHeader["tripNumber"] as Double).toLong()
+      val timestamp = Instant.from(ZonedDateTime.parse(bodyHeader["timestamp"] as String))
+      val latitude = bodyHeader["latitude"] as Double
+      val longitude = bodyHeader["longitude"] as Double
+      val gpsQuality: GpsQuality = GpsQuality.valueOf(bodyHeader["fixQuality"] as String)
+      when (messageType) {
+        "TripStartEvent" -> TripStart(
+            id,
+            deviceId,
+            timestamp,
+            latitude,
+            longitude,
+            gpsQuality,
+            vehicleId = message["vin"] as String,
+            internationalMobileEquipmentId = message["imei"] as String
+        )
+        "TripEndEvent" -> TripEnd(
+            id,
+            deviceId,
+            timestamp,
+            latitude,
+            longitude,
+            gpsQuality,
+            distanceTravelledInKilometers = message["distanceTravelled"] as Double,
+            timeMovingInSeconds = message["tripTime"] as Double,
+            timeIdleInSeconds = message["tripIdleTime"] as Double
+        )
+        "GPSMessage" -> GpsData(
+            id,
+            deviceId,
+            timestamp,
+            latitude,
+            longitude,
+            gpsQuality
+        )
+        else -> {
+          logger.error("Unknown trip event type: $messageType")
+          null
+        }
       }
+    } catch (ex: Exception) {
+      null
     }
   }
 }

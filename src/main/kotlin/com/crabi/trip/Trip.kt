@@ -2,6 +2,7 @@ package com.crabi.trip
 
 import java.time.Instant
 import java.io.Serializable
+import java.time.LocalDate
 
 data class GpsPoint(
     val timestamp: Instant,
@@ -11,6 +12,8 @@ data class GpsPoint(
 
 data class Trip(
     var id: Long?,
+    var deviceId: String?,
+    var date: LocalDate?,
     var initialTimestamp: Instant?,
     var finalTimestamp: Instant?,
     var distanceTravelledInKilometers: Double?,
@@ -25,6 +28,7 @@ enum class GpsQuality { FixOk, StoredFix, FixInvalid, Unknown }
 
 abstract class TripEvent(
     open val id: Long,
+    open val deviceId: String,
     open val timestamp: Instant,
     open val latitude: Double,
     open val longitude: Double,
@@ -33,16 +37,18 @@ abstract class TripEvent(
 
 data class TripStart(
     override val id: Long,
+    override val deviceId: String,
     override val timestamp: Instant,
     override val latitude: Double,
     override val longitude: Double,
     override val gpsQuality: GpsQuality,
     val vehicleId: String,
     val internationalMobileEquipmentId: String
-) : TripEvent(id, timestamp, latitude, longitude, gpsQuality)
+) : TripEvent(id, deviceId, timestamp, latitude, longitude, gpsQuality)
 
 data class TripEnd(
     override val id: Long,
+    override val deviceId: String,
     override val timestamp: Instant,
     override val latitude: Double,
     override val longitude: Double,
@@ -50,12 +56,13 @@ data class TripEnd(
     val distanceTravelledInKilometers: Double,
     val timeMovingInSeconds: Double,
     val timeIdleInSeconds: Double
-) : TripEvent(id, timestamp, latitude, longitude, gpsQuality)
+) : TripEvent(id, deviceId, timestamp, latitude, longitude, gpsQuality)
 
 data class GpsData(
     override val id: Long,
+    override val deviceId: String,
     override val timestamp: Instant,
     override val latitude: Double,
     override val longitude: Double,
     override val gpsQuality: GpsQuality
-) : TripEvent(id, timestamp, latitude, longitude, gpsQuality)
+) : TripEvent(id, deviceId, timestamp, latitude, longitude, gpsQuality)
