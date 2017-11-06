@@ -1,5 +1,11 @@
-package com.crabi.trip
+package com.crabi.trip.util
 
+import com.crabi.trip.models.GpsData
+import com.crabi.trip.models.GpsQuality
+import com.crabi.trip.models.Trip
+import com.crabi.trip.models.TripEnd
+import com.crabi.trip.models.TripEvent
+import com.crabi.trip.models.TripStart
 import com.google.gson.Gson
 import org.apache.flink.api.common.functions.MapFunction
 import org.slf4j.Logger

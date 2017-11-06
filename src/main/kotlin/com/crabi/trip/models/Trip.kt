@@ -1,4 +1,4 @@
-package com.crabi.trip
+package com.crabi.trip.models
 
 import java.time.Instant
 import java.io.Serializable
