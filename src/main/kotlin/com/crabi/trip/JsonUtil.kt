@@ -12,6 +12,14 @@ object JsonUtil {
   private val logger: Logger = LoggerFactory.getLogger(JsonUtil::class.java)
   private val gson = Gson()
 
+  val tripToJson = MapFunction<Trip, String?> {
+    try {
+      gson.toJson(it)
+    } catch (ex: Exception) {
+      null
+    }
+  }
+
   val toTripEvent = MapFunction<String, TripEvent?> {
     try {
       val jsonMap: Map<String, Any?> = gson.fromJson<Map<String, Any?>>(it, Map::class.java)
